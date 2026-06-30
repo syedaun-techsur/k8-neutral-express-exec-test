@@ -3,7 +3,11 @@
 **Workflow Mode:** spec-express
 **Current Milestone:** v1
 **Status:** initialized
+<<<<<<< HEAD
 **Last activity:** Specs and express plan generated; ready for execution.
+=======
+**Last activity:** 2026-06-27 - UAT verified express task quicknotes-a-personal-single-user-mobile (40/40 passed, 1 fix cycle)
+>>>>>>> eccee00 (test(uat-quicknotes-a-personal-single-user-mobile): automated UAT — 40/40 passed (1 fix cycle))
 
 ---
 
