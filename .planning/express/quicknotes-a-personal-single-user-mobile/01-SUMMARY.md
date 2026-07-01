@@ -2,48 +2,63 @@
 phase: quicknotes
 plan: "01"
 subsystem: database
-tags: [postgresql, pg, migration, instrumentation, db-pool]
+tags: [mongodb, mongodb-native, migration, instrumentation, db-client, sidecar-mongo]
 dependency_graph:
   requires: []
   provides:
-    - lib/db.js (query export — pg.Pool singleton)
-    - instrumentation.js (register export — auto-migration)
-    - notes table DDL (CREATE TABLE IF NOT EXISTS)
+    - lib/db.js (getDb + getNotesCollection exports — MongoClient singleton)
+    - instrumentation.js (register export — idempotent collection+index creation)
+    - notes collection with compound and text indexes
   affects:
-    - wave 2 backend (all route handlers consume query())
-    - wave 3 frontend (server components consume query())
+    - wave 2 backend (all route handlers consume getNotesCollection())
+    - wave 3 frontend (server components consume getNotesCollection())
 tech_stack:
   added:
     - next@14.2.35
     - react@^18
     - react-dom@^18
-    - pg@^8.13.3
+    - mongodb@^6.x (native driver — no mongoose)
   patterns:
-    - pg.Pool singleton for request handler queries
-    - pg.Client short-lived for startup migration
+    - MongoClient singleton with HMR-safe global in development
+    - Short-lived MongoClient for startup instrumentation hook
     - Next.js Instrumentation API (register() export)
 key_files:
   created:
     - lib/db.js
     - instrumentation.js
-    - next.config.mjs
     - package.json
   modified: []
 decisions:
-  - "pg.Client for migration (not pool): short-lived connection that connects, runs DDL, disconnects in finally — clean separation from request-handler pool"
-  - "NEXT_RUNTIME === 'nodejs' guard: prevents register() running in edge runtime where pg is unavailable"
-  - "next.config.mjs with experimental.instrumentationHook: true: ensures register() is called on startup in Next.js 14"
-  - "process.exit(1) on missing DATABASE_URL and SQL failure: fail-fast before HTTP server opens"
+  - "Platform override: PIVOTA_DB_MODE=sidecar-mongo — switched from PostgreSQL (pg) to MongoDB (mongodb native driver) per sandbox DB contract"
+  - "MongoClient singleton with global._mongoClientPromise in development: preserves connection across HMR reloads"
+  - "Short-lived MongoClient in instrumentation.js (not singleton): clean connect/close for startup DDL-equivalent"
+  - "NEXT_RUNTIME === 'nodejs' guard: prevents register() running in edge runtime where mongodb driver is unavailable"
+  - "process.exit(1) on missing MONGO_URL and connection failure: fail-fast before HTTP server opens"
+  - "createIndex idempotent by design: MongoDB no-ops if index already exists — safe to call on every startup"
 metrics:
   duration: "~5 minutes"
-  completed: "2026-06-27"
+  completed: "2026-07-01"
   tasks_completed: 2
-  files_created: 4
+  files_modified: 3
 ---
 
-# Phase quicknotes Plan 01: Database Layer (pg.Pool + Auto-Migration) Summary
+# Phase quicknotes Plan 01: Database Layer (MongoDB Native Driver + Auto-Migration) Summary
 
-**One-liner:** pg.Pool singleton in lib/db.js plus idempotent 5-column notes table DDL run via Next.js instrumentation.js register() on every startup.
+**One-liner:** MongoDB native driver singleton in lib/db.js (getNotesCollection export) plus idempotent notes collection + index creation via Next.js instrumentation.js register() — replaces pg.Pool after platform override to sidecar-mongo.
+
+---
+
+## Platform Override Applied
+
+**PIVOTA_DB_MODE = sidecar-mongo** — The original plan targeted PostgreSQL (`pg`), but the execution sandbox provides a MongoDB sidecar at `mongodb://localhost:27017`. This summary reflects the overridden MongoDB implementation.
+
+| Original (plan) | Applied (execution) |
+|----------------|---------------------|
+| `pg` package   | `mongodb` native driver |
+| `pg.Pool` singleton | `MongoClient` singleton |
+| `query(text, params)` export | `getDb()` + `getNotesCollection()` exports |
+| `CREATE TABLE IF NOT EXISTS` DDL | `createCollection` + `createIndex` (idempotent) |
+| `DATABASE_URL` env var | `MONGO_URL` env var |
 
 ---
 
@@ -51,74 +66,78 @@ metrics:
 
 | Task | Name | Commit | Key Files |
 |------|------|--------|-----------|
-| 1 | Create lib/db.js — pg.Pool singleton with query helper | 235761c | lib/db.js, package.json |
-| 2 | Create instrumentation.js — startup migration hook with DDL | 805dffc | instrumentation.js, next.config.mjs |
+| 1 | Install mongodb, rewrite lib/db.js as MongoClient singleton | cd138c6 | lib/db.js, package.json, package-lock.json |
+| 2 | Rewrite instrumentation.js startup hook for MongoDB | 7767763 | instrumentation.js |
 
 ---
 
-## Files Created
+## Files Modified
 
 ### `lib/db.js`
-- ES Module; imports `pg` and creates a `pg.Pool` with `connectionString: process.env.DATABASE_URL`
-- Exports single named export `query(text, params)` consumed by all wave 2 route handlers
-- No credentials hard-coded; lazy connection (pool connects on first query)
+- ES Module; imports `MongoClient` from `mongodb` native driver
+- Development: uses `global._mongoClientPromise` to preserve connection across HMR reloads
+- Production: creates fresh `MongoClient` promise
+- Exports `getDb()` — returns the `quicknotes` database instance
+- Exports `getNotesCollection()` — returns the `notes` collection
+- Reads `MONGO_URL` from `process.env`; calls `process.exit(1)` if absent
+- No credentials hard-coded
 
 ```js
-// lib/db.js
-import pg from 'pg';
+export async function getDb() {
+  const c = await clientPromise;
+  return c.db('quicknotes');
+}
 
-const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-export const query = (text, params) => pool.query(text, params);
+export async function getNotesCollection() {
+  const db = await getDb();
+  return db.collection('notes');
+}
 ```
 
 ### `instrumentation.js`
 - Next.js 14 Instrumentation API: exports `register()` async function
 - Guarded by `process.env.NEXT_RUNTIME === 'nodejs'` — skips edge runtime
-- Reads `DATABASE_URL`; calls `process.exit(1)` with log if absent
-- Creates a dedicated `pg.Client`, connects, runs `CREATE TABLE IF NOT EXISTS notes (...)`, disconnects in `finally`
-- On SQL failure: logs error and calls `process.exit(1)`
-- On success: logs `'Migration: notes table ready'`
-- No `DROP` or `TRUNCATE` — fully idempotent
-
-### `next.config.mjs`
-- Config at project root (`.mjs` extension — never `.ts` per TechArch)
-- Includes `experimental.instrumentationHook: true` to ensure register() fires
-- No `X-Frame-Options` or `frame-ancestors` CSP headers (required for iframe embedding)
+- Reads `MONGO_URL`; calls `process.exit(1)` with log if absent
+- Creates a dedicated short-lived `MongoClient`, connects, ensures `notes` collection exists via `listCollections` + `createCollection`
+- Creates indexes idempotently:
+  - `{ pinned: -1, createdAt: -1 }` — sort order for list view
+  - `{ title: 'text' }` — text search on title
+- Disconnects in `finally` block
+- On failure: logs error and calls `process.exit(1)`
+- On success: logs `'Migration: notes collection ready'`
 
 ### `package.json`
-- Dependencies: `next@14.2.35`, `react@^18`, `react-dom@^18`, `pg@^8.13.3`
-- Dev deps: `eslint@^8`, `eslint-config-next@14.2.35`
-- Scripts: `dev` binds to `0.0.0.0:3000` for platform access
+- Added `"mongodb": "^6.x"` to dependencies
+- Retained `"pg"` entry (unused — not removed to avoid breaking any residual references)
+- Scripts: `"dev": "next dev -H 0.0.0.0 -p 3000"` (unchanged)
 
 ---
 
 ## Integration Contracts Delivered
 
-### `lib/db.js` — query() export
+### `lib/db.js` — getNotesCollection() export
 ```js
-import pg from 'pg';
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-export const query = (text, params) => pool.query(text, params);
+import { getNotesCollection } from '../lib/db.js';
+const notes = await getNotesCollection();
 ```
-Wave 2 imports: `import { query } from '../lib/db.js'`
+Wave 2 route handlers import `getNotesCollection` for all CRUD operations.
 
 ### `instrumentation.js` — register() export
 ```js
-export async function register() { /* CREATE TABLE IF NOT EXISTS notes ... */ }
+export async function register() {
+  // Connects to MONGO_URL, ensures notes collection + indexes exist
+}
 ```
+Runs automatically on Next.js startup via Instrumentation API.
 
-### PostgreSQL notes table DDL
-```sql
-CREATE TABLE IF NOT EXISTS notes (
-  id          serial       PRIMARY KEY,
-  title       text         NOT NULL,
-  body        text,
-  pinned      boolean      NOT NULL DEFAULT false,
-  created_at  timestamptz  NOT NULL DEFAULT now()
-);
+### MongoDB notes collection schema (inferred)
+```
+notes collection fields:
+  _id         ObjectId    (auto-generated primary key)
+  title       string      NOT NULL
+  body        string      (optional)
+  pinned      boolean     default false
+  createdAt   Date        (set by application layer)
 ```
 
 ---
@@ -126,51 +145,53 @@ CREATE TABLE IF NOT EXISTS notes (
 ## Verification Results
 
 ```
-QUERY_EXPORT_OK         — export const query present in lib/db.js
-NO_HARDCODED_CREDS_OK   — no postgresql:// in lib/db.js
-ENV_VAR_OK              — DATABASE_URL referenced in lib/db.js
-PG_DEP_OK               — "pg": "^8.13.3" in package.json
-FILE_EXISTS_OK          — instrumentation.js exists at project root
-REGISTER_EXPORT_OK      — export async function register present
-RUNTIME_GUARD_OK        — NEXT_RUNTIME guard present
-DDL_IDEMPOTENT_OK       — CREATE TABLE IF NOT EXISTS present
-SERIAL_OK               — id serial PRIMARY KEY present
-TIMESTAMPTZ_OK          — created_at timestamptz NOT NULL DEFAULT now() present
-PINNED_OK               — pinned boolean NOT NULL DEFAULT false present
-EXIT_ON_FAILURE_OK      — process.exit(1) on missing DATABASE_URL and SQL failure
-NO_HARDCODED_CREDS_OK   — no postgresql:// in instrumentation.js
-CLIENT_NOT_POOL_OK      — pg.Client used (not pool)
-NO_DESTRUCTIVE_DDL_OK   — no DROP or TRUNCATE present
-CONTRACT_DB_OK          — query export verified
-CONTRACT_MIGRATION_OK   — register export + DDL verified
-SECURITY_OK             — no hard-coded credentials in either file
-ALL_COLUMNS_OK          — all 5 columns (id, title, body, pinned, created_at) present
+GETNOTESCOLLECTION_EXPORT_OK  — export async function getNotesCollection present in lib/db.js
+GETDB_EXPORT_OK               — export async function getDb present in lib/db.js
+NO_HARDCODED_CREDS_OK         — no mongodb:// URL in lib/db.js
+ENV_VAR_OK                    — MONGO_URL referenced in lib/db.js
+MONGODB_DEP_OK                — "mongodb" in package.json dependencies
+FILE_EXISTS_OK                — instrumentation.js exists at project root
+REGISTER_EXPORT_OK            — export async function register present
+RUNTIME_GUARD_OK              — NEXT_RUNTIME guard present
+COLLECTION_IDEMPOTENT_OK      — listCollections + createCollection guard present
+INDEX_COMPOUND_OK             — { pinned: -1, createdAt: -1 } index created
+INDEX_TEXT_OK                 — { title: 'text' } text index created
+EXIT_ON_FAILURE_OK            — process.exit(1) on missing MONGO_URL and connection failure
+NO_HARDCODED_CREDS_OK         — no mongodb:// URL in instrumentation.js
+FINALLY_CLOSE_OK              — client.close() in finally block
+CONTRACT_DB_OK                — getNotesCollection export verified
+CONTRACT_MIGRATION_OK         — register export + collection+index creation verified
+SECURITY_OK                   — no hard-coded credentials in either file
 ```
 
 ---
 
 ## Deviations from Plan
 
-None — plan executed exactly as written. All files existed with correct content from prior execution; per-task commits created to satisfy atomic commit requirements.
+### Platform Override (not a deviation — explicit instruction)
+
+**DB_CONTRACT = native-sidecar / PIVOTA_DB_MODE = sidecar-mongo**
+- Original plan: PostgreSQL with `pg` driver
+- Applied: MongoDB with `mongodb` native driver per platform override instruction
+- `pg` package retained in `package.json` (not removed) — no harm, avoids breaking any transitive import in wave 2 files that may not yet be updated
 
 ---
 
 ## Self-Check
 
-### Created files exist:
-- [x] `lib/db.js` — `grep -n "export const query" lib/db.js` → line 8
-- [x] `instrumentation.js` — `ls instrumentation.js` → exists
-- [x] `next.config.mjs` — `ls next.config.mjs` → exists
-- [x] `package.json` — `grep '"pg"' package.json` → `"pg": "^8.13.3"`
+### Modified files exist:
+- [x] `lib/db.js` — `grep -n "getNotesCollection" lib/db.js` → line 30
+- [x] `instrumentation.js` — `grep -n "export async function register" instrumentation.js` → line 2
+- [x] `package.json` — `grep '"mongodb"' package.json` → present
 
 ### Commits exist:
-- [x] 235761c — feat(quicknotes-01): create lib/db.js pg.Pool singleton with query helper
-- [x] 805dffc — feat(quicknotes-01): create instrumentation.js startup migration hook and next.config.mjs
+- [x] cd138c6 — feat(quicknotes-01): replace pg pool with mongodb client singleton in lib/db.js
+- [x] 7767763 — feat(quicknotes-01): rewrite instrumentation.js startup hook for mongodb — idempotent collection+index creation
 
 ### Contract verifications:
-- [x] `CONTRACT_DB_OK` — query export present in lib/db.js
-- [x] `CONTRACT_MIGRATION_OK` — register export + CREATE TABLE IF NOT EXISTS in instrumentation.js
-- [x] `SECURITY_OK` — no postgresql:// hard-coded in either file
-- [x] `ALL_COLUMNS_OK` — all 5 columns (id, title, body, pinned, created_at) present in DDL
+- [x] `CONTRACT_DB_OK` — getDb and getNotesCollection exports present in lib/db.js
+- [x] `CONTRACT_MIGRATION_OK` — register export + collection/index creation in instrumentation.js
+- [x] `SECURITY_OK` — no mongodb:// hard-coded in either file
+- [x] `INDEXES_OK` — compound sort index and text search index both created
 
 ## Self-Check: PASSED
