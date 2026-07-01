@@ -1,12 +1,19 @@
 // app/api/notes/[id]/route.js
-import { query } from '../../../../lib/db.js';
+import { getNotesCollection } from '../../../../lib/db.js';
+import { ObjectId } from 'mongodb';
+
+function noteToJSON(doc) {
+  if (!doc) return null;
+  const { _id, ...rest } = doc;
+  return { id: _id.toString(), ...rest };
+}
 
 function parseId(rawId) {
-  const id = parseInt(rawId, 10);
-  if (!Number.isInteger(id) || id <= 0 || String(id) !== String(rawId)) {
+  try {
+    return new ObjectId(rawId);
+  } catch {
     return null;
   }
-  return id;
 }
 
 export async function GET(request, { params }) {
@@ -15,11 +22,12 @@ export async function GET(request, { params }) {
     return Response.json({ error: 'NOTE_NOT_FOUND', message: 'Note not found' }, { status: 404 });
   }
   try {
-    const result = await query('SELECT * FROM notes WHERE id = $1', [id]);
-    if (result.rows.length === 0) {
+    const notes = await getNotesCollection();
+    const doc = await notes.findOne({ _id: id });
+    if (!doc) {
       return Response.json({ error: 'NOTE_NOT_FOUND', message: 'Note not found' }, { status: 404 });
     }
-    return Response.json(result.rows[0], { status: 200 });
+    return Response.json(noteToJSON(doc), { status: 200 });
   } catch (err) {
     console.error('GET /api/notes/[id] error:', err);
     return Response.json({ error: 'INTERNAL_ERROR', message: 'Internal server error' }, { status: 500 });
@@ -32,12 +40,11 @@ export async function PUT(request, { params }) {
     return Response.json({ error: 'NOTE_NOT_FOUND', message: 'Note not found' }, { status: 404 });
   }
   try {
-    // Check note exists
-    const existing = await query('SELECT id FROM notes WHERE id = $1', [id]);
-    if (existing.rows.length === 0) {
+    const notes = await getNotesCollection();
+    const existing = await notes.findOne({ _id: id });
+    if (!existing) {
       return Response.json({ error: 'NOTE_NOT_FOUND', message: 'Note not found' }, { status: 404 });
     }
-    // Parse body
     let body;
     try {
       body = await request.json();
@@ -50,11 +57,9 @@ export async function PUT(request, { params }) {
     }
     const noteBody = typeof body.body === 'string' ? body.body : null;
     const pinned = Boolean(body.pinned ?? false);
-    const result = await query(
-      'UPDATE notes SET title = $1, body = $2, pinned = $3 WHERE id = $4 RETURNING *',
-      [title, noteBody, pinned, id]
-    );
-    return Response.json(result.rows[0], { status: 200 });
+    await notes.updateOne({ _id: id }, { $set: { title, body: noteBody, pinned } });
+    const updated = await notes.findOne({ _id: id });
+    return Response.json(noteToJSON(updated), { status: 200 });
   } catch (err) {
     console.error('PUT /api/notes/[id] error:', err);
     return Response.json({ error: 'INTERNAL_ERROR', message: 'Internal server error' }, { status: 500 });
@@ -67,8 +72,9 @@ export async function DELETE(request, { params }) {
     return Response.json({ error: 'NOTE_NOT_FOUND', message: 'Note not found' }, { status: 404 });
   }
   try {
-    const result = await query('DELETE FROM notes WHERE id = $1 RETURNING id', [id]);
-    if (result.rows.length === 0) {
+    const notes = await getNotesCollection();
+    const result = await notes.deleteOne({ _id: id });
+    if (result.deletedCount === 0) {
       return Response.json({ error: 'NOTE_NOT_FOUND', message: 'Note not found' }, { status: 404 });
     }
     return new Response(null, { status: 204 });
