@@ -1,26 +1,36 @@
 // app/notes/[id]/edit/page.js
+import { getNotesCollection } from '../../../../lib/db.js';
+import { ObjectId } from 'mongodb';
 import EditNoteClient from './EditNoteClient.js';
-import { query } from '../../../../lib/db.js';
 
 export default async function EditNotePage({ params }) {
-  const rawId = params.id;
-  const id = parseInt(rawId, 10);
-  const isValidId = Number.isInteger(id) && id > 0 && String(id) === String(rawId);
+  const { id: rawId } = await params;
+
+  let objectId;
+  try {
+    objectId = new ObjectId(rawId);
+  } catch {
+    objectId = null;
+  }
 
   let note = null;
   let fetchError = false;
 
-  if (isValidId) {
+  if (objectId) {
     try {
-      const result = await query('SELECT * FROM notes WHERE id = $1', [id]);
-      note = result.rows[0] || null;
+      const notesCol = await getNotesCollection();
+      const doc = await notesCol.findOne({ _id: objectId });
+      if (doc) {
+        const { _id, ...rest } = doc;
+        note = { id: _id.toString(), ...rest };
+      }
     } catch (err) {
       console.error('EditNotePage DB error:', err);
       fetchError = true;
     }
   }
 
-  if (!isValidId || (!fetchError && note === null)) {
+  if (!objectId || (!fetchError && note === null)) {
     return (
       <>
         <title>Note not found — QuickNotes</title>
