@@ -3,7 +3,7 @@
  * Covers every acceptance criterion from the user stories.
  *
  * Base URL: http://localhost:3000  (set in playwright.config.ts)
- * Database: PostgreSQL (real persistence — tests manage their own state)
+ * Database: MongoDB (real persistence — tests manage their own state)
  */
 
 import { test, expect, request as pwRequest, APIRequestContext } from '@playwright/test';
@@ -18,7 +18,7 @@ import * as path from 'path';
 async function createNote(
   req: APIRequestContext,
   data: { title: string; body?: string; pinned?: boolean }
-): Promise<{ id: number; title: string; body: string; pinned: boolean }> {
+): Promise<{ id: string; title: string; body: string | null; pinned: boolean }> {
   const res = await req.post('/api/notes', {
     data: { title: data.title, body: data.body ?? '', pinned: data.pinned ?? false },
   });
@@ -27,7 +27,7 @@ async function createNote(
 }
 
 /** Delete a note via the API (best-effort; ignores 404). */
-async function deleteNote(req: APIRequestContext, id: number): Promise<void> {
+async function deleteNote(req: APIRequestContext, id: string): Promise<void> {
   await req.delete(`/api/notes/${id}`);
 }
 
@@ -37,8 +37,8 @@ async function deleteNote(req: APIRequestContext, id: number): Promise<void> {
 
 test.describe('US-0.1 — View the Note List', () => {
   let apiCtx: APIRequestContext;
-  let pinnedId: number;
-  let unpinnedId: number;
+  let pinnedId: string;
+  let unpinnedId: string;
 
   test.beforeAll(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -175,7 +175,7 @@ test.describe('US-0.2 — See the Empty State When No Notes Exist', () => {
 
 test.describe('US-2.1 — Create a New Note with Title and Body', () => {
   let apiCtx: APIRequestContext;
-  let createdId: number | null = null;
+  let createdId: string | null = null;
 
   test.beforeAll(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -241,7 +241,7 @@ test.describe('US-2.1 — Create a New Note with Title and Body', () => {
 
 test.describe('US-2.2 — Create a Pinned Note', () => {
   let apiCtx: APIRequestContext;
-  let createdId: number | null = null;
+  let createdId: string | null = null;
 
   test.beforeAll(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -354,8 +354,8 @@ test.describe('US-2.3 — Block Submission When Title Is Empty', () => {
 
 test.describe('US-3.1 — Open a Note and See Its Current Values Pre-filled', () => {
   let apiCtx: APIRequestContext;
-  let noteId: number;
-  let pinnedNoteId: number;
+  let noteId: string;
+  let pinnedNoteId: string;
 
   test.beforeAll(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -414,7 +414,7 @@ test.describe('US-3.1 — Open a Note and See Its Current Values Pre-filled', ()
 
 test.describe('US-3.2 — Save an Edited Note and See the Updated Title in the List', () => {
   let apiCtx: APIRequestContext;
-  let noteId: number;
+  let noteId: string;
 
   test.beforeEach(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -496,7 +496,7 @@ test.describe('US-3.4 — See Not-Found State for a Missing Note', () => {
 
 test.describe('US-4.1 — Delete a Note with Confirmation', () => {
   let apiCtx: APIRequestContext;
-  let noteId: number;
+  let noteId: string;
 
   test.beforeEach(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -595,8 +595,8 @@ test.describe('US-4.1 — Delete a Note with Confirmation', () => {
 
 test.describe('US-1.1 — Filter Notes by Partial Title', () => {
   let apiCtx: APIRequestContext;
-  let matchId: number;
-  let noMatchId: number;
+  let matchId: string;
+  let noMatchId: string;
 
   test.beforeAll(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -652,7 +652,7 @@ test.describe('US-1.1 — Filter Notes by Partial Title', () => {
 
 test.describe('US-5.1 — Retrieve All Notes via API', () => {
   let apiCtx: APIRequestContext;
-  let noteId: number;
+  let noteId: string;
 
   test.beforeAll(async () => {
     apiCtx = await pwRequest.newContext({ baseURL: 'http://localhost:3000' });
@@ -677,7 +677,7 @@ test.describe('US-5.1 — Retrieve All Notes via API', () => {
     const body = await res.json();
     expect(Array.isArray(body)).toBe(true);
     // At least the note we created should be there
-    const found = body.find((n: { id: number }) => n.id === noteId);
+    const found = body.find((n: { id: string }) => n.id === noteId);
     expect(found).toBeDefined();
     // Each note has expected fields
     expect(found).toHaveProperty('id');
@@ -691,7 +691,7 @@ test.describe('US-5.1 — Retrieve All Notes via API', () => {
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(Array.isArray(body)).toBe(true);
-    const found = body.find((n: { id: number }) => n.id === noteId);
+    const found = body.find((n: { id: string }) => n.id === noteId);
     expect(found).toBeDefined();
 
     // Query that matches nothing
