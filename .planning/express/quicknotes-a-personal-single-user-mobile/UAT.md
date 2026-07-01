@@ -1,6 +1,6 @@
 ---
 slug: quicknotes-a-personal-single-user-mobile
-verified: 2026-07-01T23:50:00Z
+verified: 2026-07-01T23:53:00Z
 build: passed
 app_url: http://localhost:3000
 smoke: passed
@@ -16,7 +16,7 @@ db_contract: native-sidecar (sidecar-mongo)
 # UAT — Express Task: quicknotes-a-personal-single-user-mobile
 
 **Verified:** 2026-07-01
-**Build:** ✓ Passed (Next.js production build — clean .next rebuild)
+**Build:** ✓ Passed (Next.js 14 production build)
 **Application:** http://localhost:3000
 **DB Contract:** native-sidecar (PIVOTA_DB_MODE=sidecar-mongo, MONGO_URL=mongodb://localhost:27017)
 
@@ -62,21 +62,18 @@ Results: `playwright-results.json`
 
 Build system: npm (Next.js 14)
 Build attempts: 1/10
-Build status: ✓ Passed — clean build (rm -rf .next && npm run build)
-
-## Platform Override
-
-This re-execution applied a platform override: **PIVOTA_DB_MODE=sidecar-mongo** detected at runtime, switching the entire database layer from PostgreSQL (pg) to MongoDB (mongodb native driver v7). The plans were written for PostgreSQL but the platform provides MongoDB via `MONGO_URL=mongodb://localhost:27017`.
-
-## Live Integration Results (from integration-check.sh)
-
-24/24 checks passed — see `04-SUMMARY.md` for full details.
+Build status: ✓ Passed
 
 ## Smoke Test
 
 - Dead links: 0
 - Routes failed: 0
 - All nav links resolve to 200
+
+## Security Audit
+
+Security report: `.planning/express/quicknotes-a-personal-single-user-mobile/SECURITY.md`
+Verdict: SECURED — 0 confirmed HIGH/CRITICAL findings (15 candidates examined, all refuted)
 
 ## Next Steps
 
