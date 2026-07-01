@@ -1,22 +1,29 @@
 // app/api/notes/route.js
-import { query } from '../../../lib/db.js';
+import { getNotesCollection } from '../../../lib/db.js';
+import { ObjectId } from 'mongodb';
+
+function noteToJSON(doc) {
+  if (!doc) return null;
+  const { _id, ...rest } = doc;
+  return { id: _id.toString(), ...rest };
+}
 
 export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const q = searchParams.get('q');
-    let result;
+    const notes = await getNotesCollection();
+    let cursor;
     if (q && q.trim().length > 0) {
-      result = await query(
-        'SELECT * FROM notes WHERE title ILIKE $1 ORDER BY pinned DESC, created_at DESC',
-        ['%' + q.trim() + '%']
+      cursor = notes.find(
+        { title: { $regex: q.trim(), $options: 'i' } },
+        { sort: { pinned: -1, createdAt: -1 } }
       );
     } else {
-      result = await query(
-        'SELECT * FROM notes ORDER BY pinned DESC, created_at DESC'
-      );
+      cursor = notes.find({}, { sort: { pinned: -1, createdAt: -1 } });
     }
-    return Response.json(result.rows, { status: 200 });
+    const docs = await cursor.toArray();
+    return Response.json(docs.map(noteToJSON), { status: 200 });
   } catch (err) {
     console.error('GET /api/notes error:', err);
     return Response.json({ error: 'INTERNAL_ERROR', message: 'Internal server error' }, { status: 500 });
@@ -37,11 +44,11 @@ export async function POST(request) {
     }
     const noteBody = typeof body.body === 'string' ? body.body : null;
     const pinned = Boolean(body.pinned ?? false);
-    const result = await query(
-      'INSERT INTO notes (title, body, pinned) VALUES ($1, $2, $3) RETURNING *',
-      [title, noteBody, pinned]
-    );
-    return Response.json(result.rows[0], { status: 201 });
+    const now = new Date();
+    const notes = await getNotesCollection();
+    const result = await notes.insertOne({ title, body: noteBody, pinned, createdAt: now });
+    const created = await notes.findOne({ _id: result.insertedId });
+    return Response.json(noteToJSON(created), { status: 201 });
   } catch (err) {
     console.error('POST /api/notes error:', err);
     return Response.json({ error: 'INTERNAL_ERROR', message: 'Internal server error' }, { status: 500 });
