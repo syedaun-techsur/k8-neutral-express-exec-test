@@ -1,27 +1,27 @@
 // app/page.js
-import { query } from '../lib/db.js';
+import { getNotesCollection } from '../lib/db.js';
 import Link from 'next/link';
 
 export const metadata = { title: 'QuickNotes' };
 
 export default async function HomePage({ searchParams }) {
-  const q = searchParams?.q?.trim() || '';
+  const q = (await searchParams)?.q?.trim() || '';
 
   let notes = [];
   let dbError = false;
   try {
-    let result;
+    const notesCol = await getNotesCollection();
+    let cursor;
     if (q) {
-      result = await query(
-        "SELECT * FROM notes WHERE title ILIKE $1 ORDER BY pinned DESC, created_at DESC",
-        ['%' + q + '%']
+      cursor = notesCol.find(
+        { title: { $regex: q, $options: 'i' } },
+        { sort: { pinned: -1, createdAt: -1 } }
       );
     } else {
-      result = await query(
-        "SELECT * FROM notes ORDER BY pinned DESC, created_at DESC"
-      );
+      cursor = notesCol.find({}, { sort: { pinned: -1, createdAt: -1 } });
     }
-    notes = result.rows;
+    const docs = await cursor.toArray();
+    notes = docs.map(({ _id, ...rest }) => ({ id: _id.toString(), ...rest }));
   } catch (err) {
     console.error('HomePage DB error:', err);
     dbError = true;
@@ -82,7 +82,7 @@ export default async function HomePage({ searchParams }) {
             <div id="note-list">
               {pinnedNotes.length > 0 && (
                 <>
-                  {hasBothSections && <div className="sectionDivider" data-divider="pinned">Pinned</div>}
+                  {hasBothSections && <div className="sectionDivider">Pinned</div>}
                   {pinnedNotes.map(note => (
                     <NoteCard key={note.id} note={note} />
                   ))}
@@ -90,13 +90,12 @@ export default async function HomePage({ searchParams }) {
               )}
               {unpinnedNotes.length > 0 && (
                 <>
-                  {hasBothSections && <div className="sectionDivider" data-divider="notes" style={{ marginTop: '16px' }}>Notes</div>}
+                  {hasBothSections && <div className="sectionDivider" style={{ marginTop: '16px' }}>Notes</div>}
                   {unpinnedNotes.map(note => (
                     <NoteCard key={note.id} note={note} />
                   ))}
                 </>
               )}
-              {/* Hidden empty search state for client-side script */}
               <div id="empty-search" style={{ display: 'none', textAlign: 'center', paddingTop: '24px' }}>
                 <p style={{ color: 'var(--color-muted)' }}>No notes match your search.</p>
               </div>
@@ -106,7 +105,7 @@ export default async function HomePage({ searchParams }) {
         </div>
       </main>
 
-      {/* Client-side search filter script — keeps this file as Server Component */}
+      {/* Client-side search filter script */}
       <script dangerouslySetInnerHTML={{ __html: `
         (function() {
           var input = document.getElementById('search');
@@ -114,7 +113,6 @@ export default async function HomePage({ searchParams }) {
           function doFilter() {
             var val = input.value.toLowerCase().trim();
             var cards = document.querySelectorAll('[data-note-id]');
-            var dividers = document.querySelectorAll('[data-divider]');
             var emptyState = document.getElementById('empty-search');
             var visibleCount = 0;
             cards.forEach(function(card) {
@@ -126,11 +124,9 @@ export default async function HomePage({ searchParams }) {
                 card.style.display = 'none';
               }
             });
-            // Update ?q= in URL
             var url = new URL(window.location.href);
             if (val) { url.searchParams.set('q', val); } else { url.searchParams.delete('q'); }
             window.history.replaceState(null, '', url.toString());
-            // Show/hide empty search state
             if (emptyState) {
               emptyState.style.display = visibleCount === 0 ? '' : 'none';
             }
@@ -187,7 +183,7 @@ function NoteCard({ note }) {
         </div>
       )}
       <div style={{ color: 'var(--color-muted)', fontSize: '0.75rem' }}>
-        {new Date(note.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+        {new Date(note.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
       </div>
     </a>
   );
