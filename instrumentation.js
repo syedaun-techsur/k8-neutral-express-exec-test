@@ -1,33 +1,37 @@
 // instrumentation.js
 export async function register() {
-  // Only run in the Node.js runtime (not edge runtime)
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { default: pg } = await import('pg');
-
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      console.error('DATABASE_URL environment variable is not set');
+    const { MongoClient } = await import('mongodb');
+    
+    const uri = process.env.MONGO_URL;
+    if (!uri) {
+      console.error('MONGO_URL environment variable is not set');
       process.exit(1);
     }
-
-    const client = new pg.Client({ connectionString });
+    
+    const client = new MongoClient(uri);
     try {
       await client.connect();
-      await client.query(`
-        CREATE TABLE IF NOT EXISTS notes (
-          id          serial       PRIMARY KEY,
-          title       text         NOT NULL,
-          body        text,
-          pinned      boolean      NOT NULL DEFAULT false,
-          created_at  timestamptz  NOT NULL DEFAULT now()
-        )
-      `);
-      console.log('Migration: notes table ready');
+      const db = client.db('quicknotes');
+      
+      // Ensure the notes collection exists with indexes
+      const collections = await db.listCollections({ name: 'notes' }).toArray();
+      if (collections.length === 0) {
+        await db.createCollection('notes');
+      }
+      
+      const notes = db.collection('notes');
+      
+      // Create indexes idempotently (createIndex is a no-op if index exists)
+      await notes.createIndex({ pinned: -1, createdAt: -1 });
+      await notes.createIndex({ title: 'text' });
+      
+      console.log('Migration: notes collection ready');
     } catch (err) {
       console.error('Migration failed:', err);
       process.exit(1);
     } finally {
-      await client.end();
+      await client.close();
     }
   }
 }
