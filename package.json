@@ -1,0 +1,23 @@
+{
+  "name": "quicknotes",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "mongodb": "^7.4.0",
+    "next": "14.2.35",
+    "pg": "^8.13.3",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.35"
+  }
+}

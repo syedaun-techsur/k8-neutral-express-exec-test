@@ -1,5 +1,0 @@
-{
-  "sidecars": [
-    { "kind": "mongo" }
-  ]
-}
