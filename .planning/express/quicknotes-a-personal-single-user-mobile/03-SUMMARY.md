@@ -107,3 +107,53 @@ None — plan executed exactly as written. The X-Frame-Options grep in the overa
 - [x] 148fa9f — Task 3: create + edit/delete pages
 
 ### Self-Check: PASSED
+
+---
+
+## Wave 3 MongoDB Override — Platform Migration Update
+
+**Executed:** 2026-07-01  
+**Override context:** DB_CONTRACT = native-sidecar, PIVOTA_DB_MODE = sidecar-mongo, MONGO_URL = mongodb://localhost:27017
+
+### Tasks Completed (MongoDB Migration)
+
+| Task | Name | Commit | Files |
+|------|------|--------|-------|
+| 1 | Update app/page.js — replace query()/SQL with getNotesCollection()/MongoDB | 3240857 | app/page.js |
+| 2 | Update app/notes/[id]/edit/page.js — replace parseInt/query() with ObjectId/findOne() | 4a3bf6d | app/notes/[id]/edit/page.js |
+
+### Files Modified
+
+- `app/page.js` — replaced `import { query } from '../lib/db.js'` + SQL with `getNotesCollection()` + MongoDB cursor; `(await searchParams)` pattern for Next.js 15; `_id` → `id` string mapping; `createdAt` field (was `created_at`)
+- `app/notes/[id]/edit/page.js` — replaced `parseInt(rawId)` + SQL query with `new ObjectId(rawId)` + `findOne({ _id: objectId })`; `await params` pattern for Next.js 15; `_id` → `id` string mapping
+
+### Files Unchanged
+
+- `app/notes/new/page.js` — uses `fetch('/api/notes', ...)`, no DB dependency
+- `app/notes/[id]/edit/EditNoteClient.js` — uses `fetch('/api/notes/[id]', ...)`, no DB dependency
+- `app/layout.js` — no DB dependency
+- `app/globals.css` — no DB dependency
+- `app/notes/new/NoteForm.module.css` — no DB dependency
+- `app/notes/[id]/edit/NoteForm.module.css` — no DB dependency
+- `next.config.mjs` — no DB dependency
+- `lib/db.js` — already written in Wave 1, exports `getNotesCollection()`
+
+### Key Decisions
+
+1. **MongoDB ObjectId validation replaces parseInt** — `new ObjectId(rawId)` in a try/catch replaces `parseInt(rawId, 10)` + integer validation. Invalid IDs (non-24-char hex strings) cause ObjectId constructor to throw, which sets `objectId = null`, triggering the "Note not found" path.
+2. **`createdAt` field name (MongoDB) instead of `created_at` (PostgreSQL)** — MongoDB documents use camelCase `createdAt` as set by the Wave 2 API routes. The NoteCard component date display updated from `note.created_at` to `note.createdAt`.
+3. **`await searchParams` and `await params`** — Next.js 15 requires these to be awaited. Updated `searchParams?.q` to `(await searchParams)?.q` and `params.id` to `(await params).id`.
+4. **`_id` → `id` string projection** — MongoDB `_id` is an ObjectId; destructured and mapped to string `id` before returning to client to maintain the API contract from Wave 2.
+
+### Deviations from Plan
+
+None — both files rewritten exactly as specified in the task prompt.
+
+### Self-Check (MongoDB Override)
+
+- [x] `app/page.js` — imports `getNotesCollection`, no `query`, no SQL, `createdAt` field, `(await searchParams)` pattern
+- [x] `app/notes/[id]/edit/page.js` — imports `getNotesCollection` and `ObjectId` from `mongodb`, `await params`, `findOne({ _id: objectId })`, `_id` → `id` mapping
+- [x] Commit 3240857 — app/page.js MongoDB update
+- [x] Commit 4a3bf6d — edit page MongoDB update
+
+### Self-Check: PASSED
