@@ -1,70 +1,81 @@
 ---
 slug: quicknotes-a-personal-single-user-mobile
-description: QuickNotes — personal single-user mobile note-taking app
+description: QuickNotes — personal single-user mobile note-taking app (MongoDB re-execution)
 scope: full
-date: 2026-06-27
+date: 2026-07-01
 total_plans: 4
 total_waves: 4
+db_contract: native-sidecar (sidecar-mongo)
+db_url: MONGO_URL=mongodb://localhost:27017
 ---
 
-# Express Task: QuickNotes — Personal Single-User Mobile App — Summary
+# Express Task: QuickNotes — Summary
 
 ## Execution Overview
 
-**Scope:** Full (multi-plan wave execution)
+**Scope:** Full (multi-plan wave execution — MongoDB platform override)
 **Plans:** 4 across 4 waves
-**Date:** 2026-06-27
-**DB Contract:** native-sidecar (Postgres at localhost:5432 via DATABASE_URL)
+**Date:** 2026-07-01
+**DB Contract:** native-sidecar (PIVOTA_DB_MODE=sidecar-mongo)
 
 ### Wave Breakdown
 
-| Wave | Plan | Domain | Status |
-|------|------|--------|--------|
-| 1 | 01 | database | ✓ Complete |
-| 2 | 02 | backend (api) | ✓ Complete |
-| 3 | 03 | frontend (ui) | ✓ Complete |
-| 4 | 04 | integration verification | ✓ Complete |
+| Wave | Plans | Status | What it built |
+|------|-------|--------|---------------|
+| 1 | 01 | ✓ Complete | MongoDB client singleton (lib/db.js) + startup collection/index migration (instrumentation.js) |
+| 2 | 02 | ✓ Complete | REST API routes — health check + all 5 CRUD endpoints using MongoDB ObjectId |
+| 3 | 03 | ✓ Complete | Frontend pages — list (server component, MongoDB), create (client), edit+delete (hybrid) |
+| 4 | 04 | ✓ Complete | Integration verification — 24/24 checks passed |
 
 ### Per-Plan Details
 
-**01 — Database layer (lib/db.js + instrumentation.js):**
-- Tasks: 2/2
-- Commits: 3e5936b, 5985c96, d5f3e2a
-- Files created: `lib/db.js`, `instrumentation.js`, `next.config.mjs`, `package.json`
+**01 — Database Layer (MongoDB):**
+- Tasks: 2/2 completed
+- Commits: cd138c6, 7767763, ec852b9
+- Files created: lib/db.js (MongoClient singleton, getDb/getNotesCollection exports), instrumentation.js (register() startup hook, idempotent collection+index creation), package.json updated (mongodb ^7.4.0)
+- Platform override: switched from PostgreSQL (pg) to MongoDB (mongodb native driver) per PIVOTA_DB_MODE=sidecar-mongo
 
-**02 — REST API endpoints (6 routes):**
-- Tasks: 2/2
-- Commits: 0526e0a, 4e6b444, 3e239ab
-- Files created: `app/api/health/route.js`, `app/api/notes/route.js`, `app/api/notes/[id]/route.js`
+**02 — REST API Routes (MongoDB):**
+- Tasks: 2/2 completed
+- Commits: 87738d6, 8790890, 0f244e8
+- Files created: app/api/notes/route.js (rewritten), app/api/notes/[id]/route.js (rewritten)
+- Key: ObjectId for IDs, noteToJSON helper (_id→id), $regex for search, 204 no-body DELETE
 
-**03 — Frontend UI pages:**
-- Tasks: 3/3
-- Commits: f1a6153, ad996ec, 148fa9f, e841f51
-- Files created: `app/layout.js`, `app/globals.css`, `app/page.js`, `app/notes/new/page.js`, `app/notes/new/NoteForm.module.css`, `app/notes/[id]/edit/page.js`, `app/notes/[id]/edit/EditNoteClient.js`, `app/notes/[id]/edit/NoteForm.module.css`
+**03 — Frontend Pages (MongoDB):**
+- Tasks: 2/2 completed
+- Commits: 3240857, 4a3bf6d, ba6c1c0
+- Files updated: app/page.js (getNotesCollection + MongoDB find), app/notes/[id]/edit/page.js (ObjectId + findOne)
+- Unchanged: app/notes/new/page.js, EditNoteClient.js, layout.js, globals.css, CSS modules, next.config.mjs
 
-**04 — Integration verification:**
-- Tasks: 2/2
-- Commits: c114054, b7c0a62, 18f80b8
-- Files created: `scripts/integration-check.sh`
-- Files modified: `next.config.mjs` (bug fix)
+**04 — Integration Verification:**
+- Tasks: 2/2 completed
+- Commits: de267e7, a0abfb8
+- Files created: scripts/integration-check.sh (MongoDB-adapted, 24 live checks)
+- Result: 24/24 checks passed (ALL CHECKS PASSED)
 
 ### Aggregated Stats
 
-- **Total tasks:** 9
-- **Total commits:** 12
-- **Key files created:** lib/db.js, instrumentation.js, app/api/health/route.js, app/api/notes/route.js, app/api/notes/[id]/route.js, app/layout.js, app/globals.css, app/page.js, app/notes/new/page.js, app/notes/[id]/edit/page.js, app/notes/[id]/edit/EditNoteClient.js, scripts/integration-check.sh
-- **Tech stack:** Next.js 14 App Router, pg (PostgreSQL), CSS Modules
+- **Total tasks:** 8
+- **Total commits:** 10
+- **Key files created:** lib/db.js, instrumentation.js, app/api/health/route.js, app/api/notes/route.js, app/api/notes/[id]/route.js, app/page.js, app/notes/new/page.js, app/notes/[id]/edit/page.js, app/notes/[id]/edit/EditNoteClient.js, next.config.mjs, app/globals.css, scripts/integration-check.sh
 
 ### Deviations
 
-1. **[Wave 1 — Rule 3 Blocking]** Project had no package.json or Next.js setup. Bootstrapped manually with next@14.2.35, react@^18, react-dom@^18, pg@^8.13.3.
+1. **MongoDB instead of PostgreSQL (platform override):** Plans were written for PostgreSQL but PIVOTA_DB_MODE=sidecar-mongo forced MongoDB. All SQL queries replaced with MongoDB equivalents ($regex for ILIKE, ObjectId for integer IDs, insertOne/findOne/updateOne/deleteOne for SQL CRUD).
+2. **ObjectId string IDs:** Notes now use 24-char hex ObjectId strings as `id` field (not integers). Integration script updated accordingly.
+3. **Field name change:** `created_at` (PostgreSQL convention) → `createdAt` (MongoDB convention).
+4. **Integration script rewrite:** Original script used `grep -o '"id":[0-9]*'` — updated to `grep -o '"id":"[a-f0-9]*"'` for MongoDB ObjectId strings.
 
-2. **[Wave 4 — Rule 1 Bug]** `next.config.mjs` empty `headers: []` array caused Next.js 14 hard-error ("Invalid header found — headers field cannot be empty"). Removed the headers() function entirely — Next.js 14 does not inject X-Frame-Options by default, so no override was needed. Verified live: no X-Frame-Options or frame-ancestors headers in response.
+### Live Integration Results
 
-### Verification Results (Wave 4)
-
-All 6 user stories: **PASS**
-All API contracts: **PASS**
-All 7 infrastructure constraints (C-1 through C-7): **PASS**
-Iframe-safe (no X-Frame-Options, no frame-ancestors CSP): **CONFIRMED**
-Auto-migration on startup: **CONFIRMED**
+**24/24 user story + API contract checks passed:**
+- F6: Health endpoint → 200 ✓
+- F9: No X-Frame-Options, no frame-ancestors CSP ✓
+- F7: Auto-migration (notes collection created on startup) ✓
+- US1: Home page loads, has branding and CTA ✓
+- US2: Create note → appears in list ✓
+- US3: Edit note → list reflects update ✓
+- US4: Delete note → gone from list, 404 on GET ✓
+- US5: Search with partial title (case-insensitive) ✓
+- US6: Data persists in MongoDB ✓
+- F5: API validation (TITLE_REQUIRED, 400, 404 for invalid IDs) ✓
